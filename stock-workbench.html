@@ -171,6 +171,7 @@ footer{margin-top:26px;padding-top:14px;border-top:1px solid var(--line);color:v
     <h1 onclick="location.hash='#/'">个股分析台</h1>
     <div class="spacer"></div>
     <div class="stamp"><span class="dotlive" id="liveDot"></span><span id="stampTxt">—</span></div>
+    <button class="btn ghost" onclick="location.hash='#/review'">复盘</button>
     <button class="btn ghost" id="btnHome" onclick="location.hash='#/'">全部记录</button>
   </div>
 </div>
@@ -515,11 +516,82 @@ function loadDB(){
 }
 function saveDB(db){ try{ localStorage.setItem(K,JSON.stringify(db)); }catch(e){} }
 var DB=loadDB();
+/* B8：每次分析都把结论钉成一条可回溯的快照（同一交易日覆盖，最多留 60 条） */
+function snapRecord(rec){
+  var st=rec.stock,a=rec.analysis; if(!st||!a||!st.bars||!st.bars.length) return;
+  var d=st.bars[st.bars.length-1].d;
+  var snap={d:d,ts:Date.now(),price:st.price,score:a.score,label:a.label,level:a.level,
+            ma20:a.ma.ma20,lo20:a.lo20,hi20:a.hi20,lo60:a.lo60};
+  rec.snaps=rec.snaps||[];
+  var hit=-1; rec.snaps.forEach(function(x,k){ if(x.d===d) hit=k; });
+  if(hit>=0) rec.snaps[hit]=snap; else rec.snaps.push(snap);
+  if(rec.snaps.length>60) rec.snaps=rec.snaps.slice(-60);
+}
 function upsert(rec){
+  snapRecord(rec);
   var i=DB.records.findIndex(function(x){return x.code===rec.code});
   if(i>=0) DB.records[i]=rec; else DB.records.unshift(rec);
   if(DB.records.length>80) DB.records=DB.records.slice(0,80);
   saveDB(DB);
+}
+
+
+/* ---------------- 3.5) 复盘 B8：给过去的建议对答案 ---------------- */
+var KCACHE={};
+function bucketOf(sc){ return sc>=4?"bull":sc<=-4?"bear":"flat"; }
+function bucketName(b){ return {bull:"偏多",bear:"偏空",flat:"震荡"}[b]; }
+function fwdAt(bars,d,n){
+  var i=-1,k; for(k=0;k<bars.length;k++){ if(bars[k].d===d){ i=k; break; } }
+  if(i<0) return null;
+  var j=i+n; if(j>=bars.length) return null;
+  var path=bars.slice(i+1,j+1);
+  var hi=-1e9,lo=1e9;
+  path.forEach(function(b){ if(b.h>hi)hi=b.h; if(b.c<lo)lo=b.c; });
+  return {ret:bars[j].c/bars[i].c-1, hi:hi, lo:lo, n:j-i, bar:bars[j]};
+}
+function isHit(b,r){
+  if(!r) return null;
+  if(b==="bull") return r.ret>0;
+  if(b==="bear") return r.ret<0;
+  return Math.abs(r.ret)<=0.03;
+}
+function collectReview(){
+  var recs=(DB.records||[]).filter(function(r){ return r.snaps&&r.snaps.length; });
+  var jobs=recs.map(function(r){
+    if(KCACHE[r.code]) return Promise.resolve({rec:r,bars:KCACHE[r.code]});
+    return klineSafe(secidOf(r.code),r.code).then(function(ks){
+      KCACHE[r.code]=ks.bars; return {rec:r,bars:ks.bars,src:ks.src};
+    }).catch(function(){ return {rec:r,bars:null}; });
+  });
+  return Promise.all(jobs).then(buildReview);
+}
+function buildReview(list){
+  var rows=[];
+  list.forEach(function(job){
+    var r=job.rec, bars=job.bars;
+    (r.snaps||[]).forEach(function(sn){
+      var b=bucketOf(sn.score);
+      var r3=bars?fwdAt(bars,sn.d,3):null, r5=bars?fwdAt(bars,sn.d,5):null, r10=bars?fwdAt(bars,sn.d,10):null;
+      rows.push({code:r.code,name:(r.stock&&r.stock.name)||r.code,d:sn.d,price:sn.price,
+        score:sn.score,label:sn.label,bucket:b,ma20:sn.ma20,lo20:sn.lo20,
+        r3:r3,r5:r5,r10:r10,hit:isHit(b,r5),
+        bounce:r5&&sn.ma20?r5.hi>=sn.ma20:null,
+        broke:r5&&sn.lo20?r5.lo<sn.lo20:null,
+        barsReady:!!bars});
+    });
+  });
+  rows.sort(function(a,b){ return a.d<b.d?1:a.d>b.d?-1:0; });
+  var agg={bull:{n:0,h:0,r3:0,r5:0,r10:0,n3:0,n5:0,n10:0},
+           bear:{n:0,h:0,r3:0,r5:0,r10:0,n3:0,n5:0,n10:0},
+           flat:{n:0,h:0,r3:0,r5:0,r10:0,n3:0,n5:0,n10:0}};
+  rows.forEach(function(x){
+    var a=agg[x.bucket]; a.n++;
+    if(x.hit===true) a.h++;
+    if(x.r3){a.r3+=x.r3.ret;a.n3++;}
+    if(x.r5){a.r5+=x.r5.ret;a.n5++;}
+    if(x.r10){a.r10+=x.r10.ret;a.n10++;}
+  });
+  return {rows:rows,agg:agg};
 }
 
 /* ---------------- 4) 渲染 ---------------- */
@@ -529,6 +601,78 @@ function fx(n,d){ d=d===undefined?2:d; if(n===null||n===undefined||isNaN(n))retu
 function pct(n,d){ d=d===undefined?2:d; if(n===null||isNaN(n))return "—";
   return (n>0?"+":"")+(Number(n)*100).toFixed(d)+"%"; }
 function esc(s){ return String(s||"").replace(/[<>&"]/g,function(c){return {"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]}); }
+
+
+function pn(x,d){ d=d===undefined?1:d; if(x===null||x===undefined||isNaN(x))return "—";
+  return (x>0?"+":"")+(x*100).toFixed(d)+"%"; }
+
+function viewReview(){
+  $("app").innerHTML='<div class="card" style="margin-top:20px"><h2>复盘：给过去的判断对答案</h2>'+
+    '<div class="t" style="color:#8b97a6;font-size:13px">正在回看历史走势，重算每条记录之后 3/5/10 个交易日的表现…</div></div>';
+  collectReview().then(function(res){ paintReview(res); }).catch(function(e){
+    $("app").innerHTML='<div class="card" style="margin-top:20px"><h2>复盘</h2>'+
+      '<div class="banner err" style="display:block">'+esc(e.message)+'</div></div>';
+  });
+}
+
+function paintReview(res){
+  var rows=res.rows, agg=res.agg;
+  if(!rows.length){
+    $("app").innerHTML='<div class="card" style="margin-top:20px"><h2>复盘</h2>'+
+      '<div style="color:#8b97a6;font-size:13px;line-height:2">还没有可复盘的记录。先去首页生成几只股票的分析，'+
+      '第二天起这里会开始对答案。</div>'+
+      '<div style="margin-top:14px"><button class="btn" onclick="location.hash=\'#/\'">去分析</button></div></div>';
+    return;
+  }
+  var maxN=Math.max(agg.bull.n,agg.bear.n,agg.flat.n,1);
+  function bucketBlock(k,color){
+    var a=agg[k], wr=a.n5?a.h/a.n5*100:null;
+    return '<div class="mini"><i>'+bucketName(k)+' 样本 '+a.n+' 条</i>'+
+      '<b style="color:'+color+'">'+(wr===null?"—":wr.toFixed(0)+"% 命中")+'</b>'+
+      '<div class="t" style="font-size:11px;color:#8b97a6;margin-top:5px;line-height:1.7">'+
+      '3日 '+(a.n3?((a.r3/a.n3*100).toFixed(1)+"%"):"—")+
+      ' · 5日 '+(a.n5?((a.r5/a.n5*100).toFixed(1)+"%"):"—")+
+      ' · 10日 '+(a.n10?((a.r10/a.n10*100).toFixed(1)+"%"):"—")+'</div></div>';
+  }
+  var bearRows=rows.filter(function(x){return x.bucket==="bear"&&x.r5});
+  var bounceCnt=bearRows.filter(function(x){return x.bounce}).length;
+  var brokeCnt=bearRows.filter(function(x){return x.broke}).length;
+
+  var body=rows.map(function(x){
+    var cls=x.hit===null?"":(x.hit?"green":"red");
+    var mark=x.hit===null?"待验证":(x.hit?"对":"错");
+    return '<tr><td class="num">'+x.d.slice(5)+'</td>'+
+      '<td>'+esc(x.name)+'<div class="t" style="font-size:10.5px;color:#5d6a79">'+x.code+'</div></td>'+
+      '<td class="num">'+x.score.toFixed(1)+'</td>'+
+      '<td><span class="badge '+cls+'" style="font-size:10.5px;padding:2px 7px;border-radius:20px">'+esc(x.label)+'</span></td>'+
+      '<td class="num">'+fx(x.price,2)+'</td>'+
+      '<td class="num">'+pn(x.r3&&x.r3.ret)+'</td>'+
+      '<td class="num">'+pn(x.r5&&x.r5.ret)+'</td>'+
+      '<td class="num">'+pn(x.r10&&x.r10.ret)+'</td>'+
+      '<td style="color:'+(x.hit===null?"#8b97a6":(x.hit?"#6ee7a8":"#ff8b8e"))+'">'+mark+'</td></tr>';
+  }).join("");
+
+  $("app").innerHTML=''+
+  '<div class="card" style="margin-top:20px">'+
+    '<h2>复盘：给过去的判断对答案</h2>'+
+    '<div class="t" style="color:#8b97a6;font-size:12.5px;line-height:1.9">'+
+      '每次生成分析时，系统把当天的评分与结论钉成一条快照。这里用之后真实的日 K 回算：偏多算涨、偏空算跌、震荡算 5 日内振幅 ±3% 以内，命中即打勾。'+
+      '样本少的时候结论很脆，别当成规律。<br>'+
+      '偏空样本里，5 日内出现过反弹到 MA20 的：<b style="color:#ffc46b">'+bounceCnt+'/'+bearRows.length+'</b>；'+
+      '收盘跌破 20 日低的：<b style="color:#ff8b8e">'+brokeCnt+'/'+bearRows.length+'</b>。'+
+    '</div>'+
+    '<div class="grid6" style="grid-template-columns:repeat(3,1fr);margin-top:16px">'+
+      bucketBlock("bull","#6ee7a8")+bucketBlock("bear","#ff8b8e")+bucketBlock("flat","#ffc46b")+
+    '</div>'+
+    '<div style="margin-top:22px"><table><thead><tr>'+
+      '<th>日期</th><th>标的</th><th>评分</th><th>当时结论</th><th>当时价</th><th>+3日</th><th>+5日</th><th>+10日</th><th>结果</th>'+
+    '</tr></thead><tbody>'+body+'</tbody></table></div>'+
+    '<div class="t" style="color:#5d6a79;font-size:11.5px;margin-top:14px;line-height:1.8">'+
+      '口径：+N 日 = 快照日收盘价到之后第 N 个交易日收盘价；未满 N 日显示“—”。结果按 5 日判定。'+
+    '</div>'+
+    '<div style="margin-top:16px;display:flex;gap:10px"><button class="btn" onclick="location.hash=\'#/\'">全部记录</button></div>'+
+  '</div>';
+}
 
 function viewHome(){
   var recs=DB.records||[];
@@ -552,7 +696,11 @@ function viewHome(){
     '<div class="hintline"><span class="t">示例：000063 中兴通讯 · 600519 贵州茅台 · 300750 宁德时代 · 002415 海康威视</span></div>'+
   '</div>'+
   '<div class="recs">'+
-    '<h2 style="font-size:12px;letter-spacing:1.4px;color:#5d6a79;margin:0 0 12px">历史记录（'+recs.length+'）</h2>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin:0 0 12px">'+
+      '<h2 style="font-size:12px;letter-spacing:1.4px;color:#5d6a79;margin:0">历史记录（'+recs.length+'）</h2>'+
+      '<div class="spacer" style="flex:1"></div>'+
+      '<button class="btn ghost" style="padding:6px 11px;font-size:11.5px" onclick="location.hash=\'#/review\'">复盘统计</button>'+
+    '</div>'+
     (recs.length?recs.map(recCard).join(""):'<div class="empty">还没有记录。上面输入一个代码试试。</div>')+
   '</div>';
   $("app").innerHTML=html;
@@ -721,6 +869,7 @@ var CURRENT=null;
 
 UI.route=function(){
   var h=location.hash||"#/";
+  if(h.indexOf("#/review")===0){ CURRENT=null; document.title="复盘 · 个股分析台"; viewReview(); return; }
   var m=h.match(/^#\/s\/([0-9A-Za-z]+)/);
   if(!m){ CURRENT=null; document.title="个股分析台"; viewHome(); return; }
   var code=m[1];
