@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中兴通讯 000063 · 规则执行看板</title>
+<style>
+:root{
+  --bg:#0e1116; --panel:#161b22; --panel2:#1c232c; --line:#2a323d;
+  --text:#e6edf3; --muted:#8b98a5; --red:#e5484d; --amber:#e3a008;
+  --green:#2f9e6b; --blue:#4c8fd6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.6;padding:28px 20px 60px}
+.wrap{max-width:1120px;margin:0 auto}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
+h1{font-size:24px;font-weight:700;letter-spacing:.5px}
+h1 span{font-size:13px;color:var(--muted);font-weight:400;margin-left:10px}
+.meta{font-size:12.5px;color:var(--muted);text-align:right;line-height:1.9}
+.status{margin:22px 0;display:grid;grid-template-columns:220px 1fr;gap:18px}
+.status-card{background:linear-gradient(160deg,#241416,#1a1113);border:1px solid #5b2a2e;border-radius:14px;padding:20px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.status-card .dot{width:12px;height:12px;border-radius:50%;background:var(--red);box-shadow:0 0 14px var(--red);margin-bottom:10px}
+.status-card .lv{font-size:34px;font-weight:800;color:var(--red);letter-spacing:2px}
+.status-card .sub{font-size:12px;color:var(--muted);margin-top:6px}
+.reasons{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px}
+.reasons h3{font-size:13px;color:var(--muted);font-weight:500;margin-bottom:10px;letter-spacing:1px}
+.reasons li{list-style:none;font-size:13.5px;padding:5px 0;border-bottom:1px dashed #232a33}
+.reasons li:last-child{border:none}
+.reasons b{color:#ffb4b8;font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+@media(max-width:880px){.grid{grid-template-columns:1fr}.status{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.card h2{font-size:14px;font-weight:600;letter-spacing:1px;color:#cfd8e3;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.card h2::before{content:"";width:3px;height:14px;background:var(--blue);border-radius:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:9px 8px;text-align:left;border-bottom:1px solid #222a33;vertical-align:top}
+th{color:var(--muted);font-weight:500;font-size:12px;letter-spacing:.5px}
+td.num{font-variant-numeric:tabular-nums;font-weight:600}
+.tag{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:600}
+.tag.r{background:rgba(229,72,77,.16);color:#ff8489;border:1px solid rgba(229,72,77,.35)}
+.tag.a{background:rgba(227,160,8,.14);color:#f0b942;border:1px solid rgba(227,160,8,.32)}
+.tag.g{background:rgba(47,158,107,.15);color:#5ad29b;border:1px solid rgba(47,158,107,.33)}
+.ladder td{padding:8px}
+.ladder .lvl{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700}
+.panel-data{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:4px}
+@media(max-width:880px){.panel-data{grid-template-columns:repeat(2,1fr)}}
+.kv{background:var(--panel2);border:1px solid #242c36;border-radius:10px;padding:11px 12px}
+.kv .k{font-size:11px;color:var(--muted);margin-bottom:3px}
+.kv .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.kv .v.r{color:#ff8489}.kv .v.g{color:#5ad29b}.kv .v.a{color:#f0b942}
+.action{background:linear-gradient(180deg,#1b2028,#161b22);border:1px solid #2f3945;border-radius:14px;padding:18px 20px;margin-top:18px}
+.action .row{display:flex;gap:14px;align-items:flex-start;padding:9px 0;border-bottom:1px dashed #262e38;font-size:13.5px}
+.action .row:last-child{border:none}
+.action .lbl{flex:0 0 118px;color:var(--muted);font-size:12.5px;padding-top:2px}
+.foot{margin-top:26px;font-size:11.5px;color:#6b7784;line-height:1.9;border-top:1px solid var(--line);padding-top:14px}
+.warn{background:rgba(227,160,8,.08);border:1px solid rgba(227,160,8,.25);border-radius:10px;padding:10px 14px;font-size:12.5px;color:#d9b46a;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>中兴通讯 000063.SZ<span>规则执行看板</span></h1>
+  <div class="meta">
+    数据快照：2026-11-20 14:03（盘中）<br>
+    持仓成本 27.716 元 · 仓位 &gt;30%｜重仓档<br>
+    下次自动更新：今日 15:10 收盘复盘
+  </div>
+</header>
+
+<div class="status">
+  <div class="status-card">
+    <div class="dot"></div>
+    <div class="lv">红灯</div>
+    <div class="sub">RED · 禁止买入，优先降仓</div>
+  </div>
+  <div class="reasons">
+    <h3>触发依据（三条同时成立）</h3>
+    <ol>
+      <li>收盘价已跌破 <b>26.55</b> 破位线（现价 26.43，最低 26.26，创近两年新低）</li>
+      <li>通信设备（申万）<b>4958 点</b>，低于 5031 破位颈线，板块二次探底未修复</li>
+      <li>主力净流出 <b>-2.193 亿</b>，占今日成交额 <b>20.6%</b>（昨日 11.7%），流出强度翻倍</li>
+    </ol>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>关键价位阶梯</h2>
+    <table class="ladder">
+      <tr><th>价位</th><th>含义</th><th>动作</th></tr>
+      <tr><td class="lvl">28.03</td><td>MA20 / 绿灯确认位</td><td><span class="tag g">站上 + 放量 → 可回补</span></td></tr>
+      <tr><td class="lvl">27.72</td><td>你的成本 / 保本线</td><td><span class="tag a">抵达先减 30%</span></td></tr>
+      <tr><td class="lvl">26.90–27.00</td><td>重仓档第一减仓区</td><td><span class="tag r">反弹到此减 1/3</span></td></tr>
+      <tr><td class="lvl">26.55</td><td>破位线（已破）</td><td><span class="tag r">红灯触发</span></td></tr>
+      <tr><td class="lvl">26.26</td><td>今日低点 / 短线参考</td><td><span class="tag a">跌破看 25.5</span></td></tr>
+      <tr><td class="lvl">25.00–25.50</td><td>真空区（无买盘承接）</td><td><span class="tag a">禁止补仓</span></td></tr>
+      <tr><td class="lvl">24.60–25.20</td><td>主底部区（三重共振）</td><td><span class="tag g">出现 2 个信号 → 补 30%</span></td></tr>
+      <tr><td class="lvl">24.40</td><td>硬止损（收盘价）</td><td><span class="tag r">无条件清仓</span></td></tr>
+    </table>
+    <div class="warn">24.60 的共振依据：2023 年最低收盘 24.64 + 双底破位测量目标 24.60（颈线 28.60 − 底 26.60） + 2026E PE 约 19.7–23.6 倍。</div>
+  </div>
+
+  <div class="card">
+    <h2>今日盘面数据</h2>
+    <div class="panel-data">
+      <div class="kv"><div class="k">最新价</div><div class="v r">26.43</div></div>
+      <div class="kv"><div class="k">涨跌幅</div><div class="v r">−2.62%</div></div>
+      <div class="kv"><div class="k">今日区间</div><div class="v">26.26–26.85</div></div>
+      <div class="kv"><div class="k">成交额</div><div class="v">10.66 亿</div></div>
+      <div class="kv"><div class="k">量比</div><div class="v a">0.92（缩量）</div></div>
+      <div class="kv"><div class="k">换手率</div><div class="v">1.00%</div></div>
+      <div class="kv"><div class="k">主力净流入</div><div class="v r">−2.193 亿</div></div>
+      <div class="kv"><div class="k">流出强度</div><div class="v r">20.6%</div></div>
+      <div class="kv"><div class="k">板块指数</div><div class="v r">4958（−2.81%）</div></div>
+      <div class="kv"><div class="k">融资余额</div><div class="v">80.83 亿（11-18）</div></div>
+      <div class="kv"><div class="k">MA5 / MA10 / MA20</div><div class="v">27.68 / 28.01 / 28.03</div></div>
+      <div class="kv"><div class="k">MA60</div><div class="v">30.29</div></div>
+      <div class="kv"><div class="k">布林带</div><div class="v">27.15–28.91（已破下轨）</div></div>
+      <div class="kv"><div class="k">RSI(14)</div><div class="v a">31.1（近超卖）</div></div>
+      <div class="kv"><div class="k">MACD 柱</div><div class="v a">+0.118（5 日连缩）</div></div>
+      <div class="kv"><div class="k">A/H 溢价</div><div class="v r">约 63%</div></div>
+    </div>
+    <div class="warn">缩量不代表止跌：成交量比昨日少 44%，主力卖出金额却几乎持平 —— 承接盘变薄，属阴跌结构。</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:18px">
+  <h2>规则状态机（写死，不临场改）</h2>
+  <table>
+    <tr><th style="width:64px">编号</th><th>触发条件（收盘口径确认）</th><th>状态</th><th>动作</th></tr>
+    <tr><td>R1</td><td>收盘 &lt; 24.40</td><td><span class="tag r">红灯</span></td><td>无条件清仓，不参与任何反弹</td></tr>
+    <tr><td>R2</td><td>收盘 &lt; 26.55 或 板块 &lt; 5031</td><td><span class="tag r">红灯</span></td><td>反弹至 26.90–27.00 减 1/3；不反弹则持有到 R5</td></tr>
+    <tr><td>R3</td><td>主力净流出 &gt; 1 亿 且 流出强度 &gt; 15%</td><td><span class="tag r">红灯</span></td><td>当日禁止任何买入</td></tr>
+    <tr><td>R4</td><td>缩量（量比 &lt; 1）但主力净流出 &gt; 1 亿</td><td><span class="tag a">黄灯</span></td><td>观望，不动，不补不追</td></tr>
+    <tr><td>R5</td><td>24.60–25.20 区间 且 出现 ≥2 个触底信号</td><td><span class="tag g">绿灯</span></td><td>补仓 30%（测算成本降至约 27.09）</td></tr>
+    <tr><td>R6</td><td>收盘 &gt; 28.03 且 成交额 &gt; 15 亿 且 主力连续 2 日净流入</td><td><span class="tag g">绿灯</span></td><td>回补至总仓位 ≤25%，单次不超过 20%</td></tr>
+  </table>
+  <div class="warn">触底信号清单（任意 2 个成立）：① 单日成交额 &gt;35 亿且收长下影 ② 次日缩量 &lt;15 亿且不创新低 ③ 主力连续 2 日净流入 ④ 板块收复 5031 ⑤ 日线 MACD 底背离。</div>
+</div>
+
+<div class="action">
+  <h2 style="font-size:14px;font-weight:600;letter-spacing:1px;color:#cfd8e3;margin-bottom:10px">下一步动作（重仓档 &gt;30%）</h2>
+  <div class="row"><div class="lbl">今天（11-20）</div><div><b>不动。</b>26.43 既不是止损位（已跌 4.6%，此处砍是最差位置），也不是补仓位。</div></div>
+  <div class="row"><div class="lbl">今日收盘</div><div>≥26.45 且成交额 &lt;13 亿 → 下周一反抽概率上升；&lt;26.20 → 下周一直接看 25.5。</div></div>
+  <div class="row"><div class="lbl">下周反抽</div><div>26.90–27.00 减 1/3；若能到 27.72（成本）再减 30%；剩余持有到 R5 或 R1。</div></div>
+  <div class="row"><div class="lbl">补仓条件</div><div>只在 24.60–25.20 且触底信号 ≥2 个时执行，单次 30%，不设第二档补仓。</div></div>
+  <div class="row"><div class="lbl">硬约束</div><div>收盘 &lt;24.40 清仓；每次操作必须记录触发规则编号，否则次日建议不生成。</div></div>
+</div>
+
+<div class="card" style="margin-top:18px">
+  <h2>信号历史</h2>
+  <table>
+    <tr><th>日期</th><th>状态</th><th>触发规则</th><th>关键数据</th><th>建议动作</th><th>是否执行</th></tr>
+    <tr><td>2026-11-19</td><td><span class="tag a">黄灯</span></td><td>R3 临界（流出强度 11.7%）</td><td>收盘 27.14（−3.00%），主力 −2.227 亿，放量 19.08 亿</td><td>跌破 26.55 即减仓</td><td>未执行</td></tr>
+    <tr><td>2026-11-20（盘中）</td><td><span class="tag r">红灯</span></td><td>R2 + R3</td><td>26.43（−2.62%），低 26.26，主力 −2.193 亿（强度 20.6%），板块 4958</td><td>反弹 26.90–27.00 减 1/3</td><td>待记录</td></tr>
+  </table>
+</div>
+
+<div class="foot">
+  规则执行口径：所有阈值以「收盘价」确认，盘中插针不作为触发依据。<br>
+  本看板由东方财富妙想数据源驱动，每交易日 10:30 / 13:30 / 15:10 自动巡检更新，也可随时手动触发。<br>
+  本工具输出的是「规则状态与动作」而非收益承诺，不构成投资建议；数据为盘中快照，以收盘为准。
+</div>
+
+</div>
+</body>
+</html>
