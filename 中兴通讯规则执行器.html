@@ -276,7 +276,7 @@ footer{margin-top:24px;padding:16px 0 0;border-top:1px solid var(--line);color:v
 
   <footer>
     口径：所有阈值按<b>收盘价</b>确认，盘中插针不算触发；价位与概率为规则设定，不构成收益承诺或投资建议。<br>
-    数据：打开页面即从东方财富公开行情接口实时拉取价格、资金流、日 K（MA/RSI）与通信设备板块指数（BK0448），交易时段每 30 秒自动刷新；接口不可用时回落到内置快照并在顶部明确标注。<br>
+    数据：价格/成交额/量比走<b>东方财富 push2 三主机竞速</b>，失败自动降级到<b>腾讯行情</b>；日 K 与均线同源兜底腾讯；资金流与板块指数只有东财独供，取不到时显示“未取到”并<b>不计入判定</b>（板块会沿用上次成功值并标注时间），交易时段每 30 秒自动刷新。<br>
     持仓、阈值、日志只存本机浏览器，不上传。
   </footer>
 </div>
@@ -342,16 +342,75 @@ function load(){
 }
 
 /* ================= 实时数据 ================= */
-var API_Q="https://push2.eastmoney.com/api/qt/stock/get?secid=0.000063&fltt=2&fields=f43,f44,f45,f46,f47,f48,f50,f60,f62,f116,f117,f162,f167,f168,f169,f170,f184";
-var API_FLOW="https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=0.000063&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&lmt=2";
-var API_K="https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=0.000063&fields1=f1,f2,f3&fields2=f51,f53,f54,f55,f56,f57&klt=101&fqt=1&lmt=80&end=20500101";
-var API_S="https://push2.eastmoney.com/api/qt/stock/get?secid=90.BK0448&fltt=2&fields=f43,f170,f57,f58";
+var HOSTS=["https://push2.eastmoney.com","https://push2delay.eastmoney.com","https://push2his.eastmoney.com"];
+var P_Q="/api/qt/stock/get?secid=0.000063&fltt=2&fields=f43,f44,f45,f46,f47,f48,f50,f60,f62,f116,f117,f162,f167,f168,f170,f57,f58";
+var P_FLOW="/api/qt/stock/fflow/kline/get?secid=0.000063&fields1=f1,f2,f3,f7&fields2=f51,f52&klt=101&lmt=2";
+var P_K="/api/qt/stock/kline/get?secid=0.000063&fields1=f1,f2,f3&fields2=f51,f53,f54,f55,f56,f57&klt=101&fqt=1&lmt=80&end=20500101";
+var P_S="/api/qt/stock/get?secid=90.BK0448&fltt=2&fields=f43,f170,f57,f58";
+var SEC_KEY="zte_sector_cache_v1";
 var seq=0;
+function nowHM(){ var d=new Date(); return pad(d.getHours())+":"+pad(d.getMinutes()); }
+function hostOf(u){ return u.substring(8,u.indexOf(".eastmoney")); }
+
+/* 多主机并行竞速（3 个 host 同时打，谁先回有效数据用谁），全失败再重来一轮 */
+function tryEM(path,ok){
+  function attempt(k){
+    if(k>=2) return Promise.reject(new Error("all hosts empty"));
+    var ps=HOSTS.map(function(h){
+      return jsonp(h+path).then(function(d){
+        if(d&&d.data&&(!ok||ok(d.data))) return {data:d.data,src:hostOf(h),at:nowHM()};
+        throw new Error("bad payload");
+      });
+    });
+    return new Promise(function(res,rej){
+      var settled=false, left=ps.length;
+      ps.forEach(function(p){
+        p.then(function(v){ if(!settled){ settled=true; res(v); } },
+               function(){ left--; if(left===0&&!settled){ settled=true; attempt(k+1).then(res,rej); } });
+      });
+    });
+  }
+  return attempt(0);
+}
+/* 腾讯备源：script 标签加载（GBK / 全局变量），不受跨域限制 */
+function loadScript(src,charset){
+  return new Promise(function(res,rej){
+    var sc=document.createElement("script"), t=setTimeout(function(){ if(sc.parentNode)sc.parentNode.removeChild(sc); rej(new Error("timeout")); },9000);
+    sc.charset=charset||"UTF-8";
+    sc.onload=function(){ clearTimeout(t); res(); };
+    sc.onerror=function(){ clearTimeout(t); rej(new Error("blocked")); };
+    sc.src=src; document.head.appendChild(sc);
+  });
+}
+function txQuote(){
+  return loadScript("https://qt.gtimg.cn/q=sz000063","GBK").then(function(){
+    var raw=window.v_sz000063; try{ delete window.v_sz000063; }catch(e){}
+    if(!raw) throw new Error("tx empty");
+    var f=raw.split("~"), st=f[30]||"";
+    return {price:+f[3],prevClose:+f[4],open:+f[5],high:+f[33],low:+f[34],
+      amount:+(+f[37]/10000).toFixed(2),volumeRatio:+f[49],turnover:+f[38],
+      pe:+f[39],pb:+f[46],mktcap:+f[45],src:"腾讯行情",
+      at:st.length>=12?(st.slice(8,10)+":"+st.slice(10,12)):nowHM()};
+  });
+}
+function txKline(){
+  var v="txk"+Math.random().toString(36).slice(2);
+  return loadScript("https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param=sz000063,day,,,80&_var="+v).then(function(){
+    var d=window[v]; try{ delete window[v]; }catch(e){}
+    var o=d&&d.data&&d.data.sz000063, arr=(o&&(o.day||o.qfqday))||[];
+    if(!arr.length) throw new Error("tx kline empty");
+    return {closes:arr.map(function(b){ return +b[2]; }),src:"腾讯日K",at:nowHM()};
+  });
+}
+function secCache(){
+  try{ var o=JSON.parse(localStorage.getItem(SEC_KEY)||"null"); if(o&&o.v>0) return {v:+o.v,chg:+o.chg,at:o.at,src:"板块·缓存"+o.at}; }catch(e){}
+  return {v:0,chg:0,at:"",src:"板块·未取到"};
+}
 
 function jsonp(url){
   return new Promise(function(res,rej){
     var cb="__cb"+(++seq)+"_"+Math.floor(Math.random()*1e6);
-    var sc=null, t=setTimeout(function(){ cleanup(); rej(new Error("timeout")); },9000);
+    var sc=null, t=setTimeout(function(){ cleanup(); rej(new Error("timeout")); },5000);
     function cleanup(){
       try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
       if(sc&&sc.parentNode) sc.parentNode.removeChild(sc);
@@ -387,35 +446,59 @@ function sessionOf(d){
 function pad(n){ return String(n).padStart(2,"0"); }
 
 function pull(){
-  return Promise.all([jsonp(API_Q),jsonp(API_FLOW),jsonp(API_K),jsonp(API_S)]).then(function(r){
-    var q=r[0]&&r[0].data, fl=r[1]&&r[1].data, kd=r[2]&&r[2].data, sc=r[3]&&r[3].data;
-    if(!q||!kd||!kd.klines||!kd.klines.length) throw new Error("empty payload");
-    var kl=kd.klines.map(function(x){return x.split(",")});
-    var closes=kl.map(function(a){return +a[1]});
-    var n=closes.length-1;
-    var prev=(q.f60!==undefined&&q.f60!==null&&+q.f60>0)?+q.f60:(n>0?closes[n-1]:null);
+  var qP=tryEM(P_Q,function(d){ return d.f43>0; }).then(function(o){
+      return {q:o.data,src:"行情·"+o.src,at:o.at};
+    },function(){ return txQuote().then(function(t){ return {tx:t,src:t.src,at:t.at}; }); });
 
-    var mainNet=0;
-    if(fl&&fl.klines&&fl.klines.length){
-      mainNet=(+fl.klines[fl.klines.length-1].split(",")[1])/1e8;
-    }
+  var kP=tryEM(P_K,function(d){ return d.klines&&d.klines.length>10; }).then(function(o){
+      return {closes:o.data.klines.map(function(x){ return +x.split(",")[1]; }),src:"日K·"+o.src,at:o.at};
+    },function(){ return txKline(); });
+
+  var fP=tryEM(P_FLOW,function(d){ return d.klines&&d.klines.length; }).then(function(o){
+      return {net:(+o.data.klines[o.data.klines.length-1].split(",")[1])/1e8,src:"资金·"+o.src,at:o.at};
+    },function(){ return null; });
+
+  var sP=tryEM(P_S,function(d){ return d.f43>0; }).then(function(o){
+      var c={v:+o.data.f43,chg:+o.data.f170,at:o.at,src:"板块·"+o.src};
+      try{ localStorage.setItem(SEC_KEY,JSON.stringify(c)); }catch(e){}
+      return c;
+    },function(){ return secCache(); });
+
+  return Promise.all([qP,kP,fP,sP]).then(function(r){
+    var qr=r[0], kr=r[1], fr=r[2], sr=r[3];
+    if(!kr||!kr.closes||kr.closes.length<20) throw new Error("empty payload");
+    var q=qr.q||{}, tx=qr.tx||{}, closes=kr.closes, n=closes.length-1;
+    var price=(q.f43!==undefined&&+q.f43>0)?+q.f43:tx.price;
+    if(!price||isNaN(price)) throw new Error("no price");
+    var prev=(q.f60&&+q.f60>0)?+q.f60:(tx.prevClose||(n>0?closes[n-1]:null));
+
+    var mainNet=null;
+    if(q.f62!==undefined&&q.f62!==null&&isFinite(+q.f62)) mainNet=+(+q.f62/1e8).toFixed(3);
+    else if(fr&&isFinite(fr.net)) mainNet=+fr.net.toFixed(3);
+
     var now=new Date();
     var snap={
       name:q.f58||"中兴通讯", code:q.f57||"000063",
       date:now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate()),
       time:pad(now.getHours())+":"+pad(now.getMinutes()),
       session:sessionOf(now),
-      price:+q.f43, prevClose:prev, open:+q.f46, high:+q.f44, low:+q.f45,
-      amount:+(q.f48/1e8).toFixed(2), volumeRatio:+q.f50, turnover:+q.f168,
-      mainNet:+mainNet.toFixed(3),
-      sector:(sc&&sc.f43)?+sc.f43:0, sectorChg:(sc&&sc.f170)?+sc.f170:0,
+      price:price, prevClose:prev, open:q.f46!==undefined?+q.f46:tx.open,
+      high:q.f44!==undefined?+q.f44:tx.high, low:q.f45!==undefined?+q.f45:tx.low,
+      amount:q.f48?+(q.f48/1e8).toFixed(2):tx.amount,
+      volumeRatio:q.f50!==undefined?+q.f50:tx.volumeRatio,
+      turnover:q.f168!==undefined?+q.f168:tx.turnover,
+      mainNet:mainNet,
+      sector:(sr&&sr.v>0)?sr.v:0, sectorChg:(sr&&sr.chg)?sr.chg:0,
+      sectorAt:(sr&&sr.at)||"",
       sectorLine:S.set.sectorLine,
       ma5:ma(closes,n,5), ma10:ma(closes,n,10), ma20:ma(closes,n,20), ma60:ma(closes,n,60),
       rsi:calcRSI(closes,14),
-      pe:+q.f162, pb:+q.f167, mktcap:+(q.f116/1e8).toFixed(2)
+      pe:q.f162!==undefined?+q.f162:tx.pe, pb:q.f167!==undefined?+q.f167:tx.pb,
+      mktcap:q.f116?+(q.f116/1e8).toFixed(2):tx.mktcap,
+      srcs:{q:qr.src,f:fr?fr.src:"资金·未取到",k:kr.src,s:(sr&&sr.src)||"板块·未取到"}
     };
     snap.note="量比 "+fx(snap.volumeRatio,2)+" · 成交 "+fx(snap.amount,2)+" 亿 · 主力 "+
-      (snap.mainNet>0?"+":"")+fx(snap.mainNet,2)+" 亿";
+      (mainNet===null?"未取到":((mainNet>0?"+":"")+fx(mainNet,2)+" 亿"));
     return snap;
   });
 }
@@ -423,10 +506,12 @@ function pull(){
 /* ================= 规则引擎 ================= */
 function evaluate(){
   var s=S.snap, st=S.set;
-  var price=+s.price, mainNet=+s.mainNet, amount=+s.amount, vr=+s.volumeRatio;
+  var price=+s.price, amount=+s.amount, vr=+s.volumeRatio;
+  var mainNet=(s.mainNet===null||s.mainNet===undefined||isNaN(+s.mainNet))?null:+s.mainNet;
+  var hasFlow=mainNet!==null;
   var sector=(s.sector&&s.sector>0)?+s.sector:null;
   var secLine=+st.sectorLine;
-  var strength=(amount>0&&mainNet<0)?Math.abs(mainNet)/amount:0;
+  var strength=(hasFlow&&amount>0&&mainNet<0)?Math.abs(mainNet)/amount:0;
   var r=[];
   function add(id,name,cond,on,level,why){ r.push({id:id,name:name,cond:cond,on:on,level:level,why:why}); }
 
@@ -437,18 +522,18 @@ function evaluate(){
   add("R2","破位降仓","收盘价 < "+fx(st.breakPrice,2)+" 或 板块 < "+fx(secLine,0), brk,"red",
       price<st.breakPrice?("价格破 "+fx(st.breakPrice,2)):((sector!==null&&sector<secLine)?("板块 "+fx(sector,0)+" 破 "+fx(secLine,0)):"未破位"));
 
-  add("R3","禁止买入","主力净流出 > 1 亿 且 流出强度 > 15%", (mainNet<-1&&strength>0.15),"red",
-      mainNet>=-1?"主力未大额流出":("流出 "+fx(Math.abs(mainNet),2)+" 亿 / 成交 "+fx(amount,2)+" 亿 = "+mag(strength,1)));
+  add("R3","禁止买入","主力净流出 > 1 亿 且 流出强度 > 15%", (hasFlow&&mainNet<-1&&strength>0.15),"red",
+      !hasFlow?"资金数据未取到，本项跳过":(mainNet>=-1?"主力未大额流出":("流出 "+fx(Math.abs(mainNet),2)+" 亿 / 成交 "+fx(amount,2)+" 亿 = "+mag(strength,1))));
 
-  add("R4","缩量观望","量比 < 1 且 主力净流出 > 1 亿", (vr<1&&mainNet<-1),"amber",
-      vr>=1?("量比 "+fx(vr,2)+"，未缩量"):("量比 "+fx(vr,2)+" 缩量，主力仍撤"));
+  add("R4","缩量观望","量比 < 1 且 主力净流出 > 1 亿", (hasFlow&&vr<1&&mainNet<-1),"amber",
+      !hasFlow?"资金数据未取到，本项跳过":(vr>=1?("量比 "+fx(vr,2)+"，未缩量"):("量比 "+fx(vr,2)+" 缩量，主力仍撤")));
 
   var inBuy=(price>=st.buyLower&&price<=st.buyUpper);
   add("R5","底部回补","价格进入 "+fx(st.buyLower,2)+"–"+fx(st.buyUpper,2)+" 且 触底信号 ≥2", inBuy,"green",
       price<st.buyLower?("距加仓区还差 "+fx(st.buyLower-price,2)+" 元"):(price>st.buyUpper?"未进入加仓区":"已在加仓区，等信号确认"));
 
   add("R6","趋势回补","收盘 > "+fx(st.green,2)+" 且 成交额 > 15 亿 且 主力连续 2 日净流入",
-      (price>st.green&&amount>15&&mainNet>0),"green",
+      (price>st.green&&amount>15&&hasFlow&&mainNet>0),"green",
       price<=st.green?("距绿灯位 "+fx(st.green,2)+" 还差 "+fx(st.green-price,2)):"已过绿灯位，等资金确认");
 
   var level,name,sub,action,actionSub;
@@ -458,11 +543,11 @@ function evaluate(){
     level="red"; name="红灯 · 破位"; sub="26.55 失守，结构走坏";
     action="反弹 "+fx(st.cutLower,2)+"–"+fx(st.cutUpper,2)+" 减 1/3";
     actionSub="不反弹就别追着砍，持到底部区等 R5；重仓档先降风险，不在半山腰补仓"; }
-  else if(mainNet<-1&&strength>0.15){ level="red"; name="红灯 · 资金撤离"; sub="主力流出强度超 15%";
+  else if(hasFlow&&mainNet<-1&&strength>0.15){ level="red"; name="红灯 · 资金撤离"; sub="主力流出强度超 15%";
     action="当日禁止任何买入"; actionSub="只能减、不能加；看次日量能是否收缩再谈底部"; }
-  else if(vr<1&&mainNet<-1){ level="amber"; name="黄灯 · 缩量阴跌"; sub="承接盘变薄，无企稳信号";
+  else if(hasFlow&&vr<1&&mainNet<-1){ level="amber"; name="黄灯 · 缩量阴跌"; sub="承接盘变薄，无企稳信号";
     action="观望，不补不追"; actionSub="等成交额与资金方向同时转向"; }
-  else if(price>st.green&&amount>15&&mainNet>0){ level="green"; name="绿灯 · 趋势回补"; sub="站上 MA20 且资金回流";
+  else if(price>st.green&&amount>15&&hasFlow&&mainNet>0){ level="green"; name="绿灯 · 趋势回补"; sub="站上 MA20 且资金回流";
     action="回补至总仓位 ≤25%，单次 ≤20%"; actionSub="确认成立再动，一次别加满"; }
   else if(inBuy){ level="amber"; name="黄灯 · 底部待确认"; sub="已进加仓区，信号不足";
     action="等 2 个触底信号再补 30%"; actionSub="成交额>35亿收长下影 / 缩量不创新低 / 主力连续2日回流 / 板块收复破位线 / MACD底背离"; }
@@ -493,11 +578,13 @@ function renderStatus(E){
   var s=S.snap, ch=(s.price-s.prevClose)/s.prevClose;
   $("kPrice").textContent=fx(s.price,2)+"  "+pct(ch,2);
   $("kPrice").className=ch>=0?"up":"dn";
-  $("kMain").textContent=(s.mainNet>0?"+":"")+fx(s.mainNet,2)+" 亿";
-  $("kMain").className=s.mainNet>=0?"up":"dn";
-  $("kStr").textContent=s.mainNet<0?mag(E.strength,1):"—";
-  $("kStr").className=E.strength>0.15?"dn":"";
-  $("kSector").textContent=s.sector?fx(s.sector,0)+"  "+pct((s.sectorChg||0)/100,2):"—";
+  var mn=(s.mainNet===null||s.mainNet===undefined||isNaN(+s.mainNet))?null:+s.mainNet;
+  $("kMain").textContent=mn===null?"未取到":((mn>0?"+":"")+fx(mn,2)+" 亿");
+  $("kMain").className=mn===null?"":(mn>=0?"up":"dn");
+  $("kStr").textContent=(mn!==null&&mn<0)?mag(E.strength,1):"—";
+  $("kStr").className=(mn!==null&&mn<0&&E.strength>0.15)?"dn":"";
+  var secAt=(s.sector&&s.sectorAt)?(" <small style='color:#5d6a79;font-size:10.5px'>"+s.sectorAt+"</small>"):"";
+  $("kSector").innerHTML=s.sector?(fx(s.sector,0)+"  "+pct((s.sectorChg||0)/100,2)+secAt):"—";
   $("kSector").className=(s.sector&&s.sector<S.set.sectorLine)?"dn":"up";
   $("stateTag").textContent=s.date+" "+s.time+" · "+s.session+" · "+(S.live?"实时接口":"离线快照");
 }
@@ -633,6 +720,15 @@ function renderBanner(){
     el.className="banner"; el.style.display="block";
     el.innerHTML="盘中实时数据。状态按<b>收盘价口径</b>判定，盘中破位只作预警，收盘确认后才算触发。";
   }else{ el.style.display="none"; }
+  if(S.live&&s.srcs&&el.style.display!=="none"){
+    var bad=[];
+    if(String(s.srcs.f).indexOf("未取到")>-1) bad.push("主力资金");
+    if(String(s.srcs.s).indexOf("未取到")>-1) bad.push("板块");
+    el.innerHTML+="<div style='margin-top:6px;color:#6b7a8c;font-size:11px'>数据源 · "
+      +s.srcs.q+" ｜ "+s.srcs.k+" ｜ "+s.srcs.f+" ｜ "+s.srcs.s
+      +(bad.length?("　<b style='color:#ff9a9d'>"+bad.join("、")+"未取到，相关项不计入判定</b>"):"")
+      +"</div>";
+  }
   $("stampTxt").textContent=(S.live?"已同步 ":"快照 ")+s.date+" "+s.time+" · "+s.session;
   $("liveDot").className="dotlive"+(S.live?"":" dead");
 }
