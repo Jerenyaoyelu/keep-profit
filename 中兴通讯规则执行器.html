@@ -276,7 +276,7 @@ footer{margin-top:24px;padding:16px 0 0;border-top:1px solid var(--line);color:v
 
   <footer>
     口径：所有阈值按<b>收盘价</b>确认，盘中插针不算触发；价位与概率为规则设定，不构成收益承诺或投资建议。<br>
-    数据：价格/成交额/量比走<b>东方财富 push2 三主机竞速</b>，失败自动降级到<b>腾讯行情</b>；日 K 与均线同源兜底腾讯；资金流与板块指数只有东财独供，取不到时显示“未取到”并<b>不计入判定</b>（板块会沿用上次成功值并标注时间），交易时段每 30 秒自动刷新。<br>
+    数据：价格/成交额/量比走<b>东方财富 push2 三主机竞速</b>，失败自动降级到<b>腾讯行情</b>；日 K 与均线同源兜底腾讯；资金流：东财 f62 → 东财 fflow → **新浪资金流(超大+大单)** 三级兜底；板块指数只有东财独供，取不到时显示“未取到”并<b>不计入判定</b>（板块会沿用上次成功值并标注时间），交易时段每 30 秒自动刷新。<br>
     持仓、阈值、日志只存本机浏览器，不上传。
   </footer>
 </div>
@@ -402,6 +402,18 @@ function txKline(){
     return {closes:arr.map(function(b){ return +b[2]; }),src:"腾讯日K",at:nowHM()};
   });
 }
+/* 新浪资金流：jsonp_v2 的「var 名字=」形式，浏览器可跨域取，作为主力资金备份源 */
+function flowSina(){
+  var name="ztf"+Math.random().toString(36).slice(2);
+  var url="https://vip.stock.finance.sina.com.cn/quotes_service/api/jsonp_v2.php/var%20"+name+"=/MoneyFlow.ssi_ssfx_flzjtj?daima=sz000063&_="+Date.now();
+  return loadScript(url).then(function(){
+    var d=window[name]; try{ delete window[name]; }catch(e){}
+    if(!d||d.r0_in===undefined) throw new Error("sina empty");
+    var f=function(k){ return +d[k]||0; };
+    var net=((f("r0_in")+f("r1_in"))-(f("r0_out")+f("r1_out")))/1e8;
+    return {net:+net.toFixed(3),at:nowHM(),src:"资金·新浪(超大+大单)"};
+  });
+}
 function secCache(){
   try{ var o=JSON.parse(localStorage.getItem(SEC_KEY)||"null"); if(o&&o.v>0) return {v:+o.v,chg:+o.chg,at:o.at,src:"板块·缓存"+o.at}; }catch(e){}
   return {v:0,chg:0,at:"",src:"板块·未取到"};
@@ -456,7 +468,7 @@ function pull(){
 
   var fP=tryEM(P_FLOW,function(d){ return d.klines&&d.klines.length; }).then(function(o){
       return {net:(+o.data.klines[o.data.klines.length-1].split(",")[1])/1e8,src:"资金·"+o.src,at:o.at};
-    },function(){ return null; });
+    },function(){ return flowSina(); }).catch(function(){ return null; });
 
   var sP=tryEM(P_S,function(d){ return d.f43>0; }).then(function(o){
       var c={v:+o.data.f43,chg:+o.data.f170,at:o.at,src:"板块·"+o.src};
@@ -473,7 +485,7 @@ function pull(){
     var prev=(q.f60&&+q.f60>0)?+q.f60:(tx.prevClose||(n>0?closes[n-1]:null));
 
     var mainNet=null;
-    if(q.f62!==undefined&&q.f62!==null&&isFinite(+q.f62)) mainNet=+(+q.f62/1e8).toFixed(3);
+    if(q.f62!==undefined&&q.f62!==null&&isFinite(+q.f62)&&+q.f62!==0) mainNet=+(+q.f62/1e8).toFixed(3);
     else if(fr&&isFinite(fr.net)) mainNet=+fr.net.toFixed(3);
 
     var now=new Date();
